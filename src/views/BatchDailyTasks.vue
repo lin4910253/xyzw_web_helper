@@ -5338,6 +5338,20 @@ const checkAndExecuteQueuedTasks = async () => {
               await executeInBatches(taskFunction, subTaskName, subTaskName, true);
             }
           }
+          
+          // 重要：任务执行成功后，立即从积攒队列中移除
+          // 避免页面刷新后重复执行已完成的任务
+          const taskIndex = batchTaskStore.taskQueue.findIndex(t => t.id === task.id);
+          if (taskIndex > -1) {
+            batchTaskStore.taskQueue.splice(taskIndex, 1);
+            // 保存更新后的队列到本地存储
+            safeLocalStorage.setItem('batch_task_queue', JSON.stringify(batchTaskStore.taskQueue));
+            addLog({
+              time: new Date().toLocaleTimeString(),
+              message: `=== 积攒任务 ${taskName} 执行完成，已从队列中移除 ===`,
+              type: "success",
+            });
+          }
         } finally {
           // 清除任务正在执行的标记
           if (task.id) {
@@ -6626,6 +6640,9 @@ const executeScheduledTask = async (task) => {
             message: `=== 第 ${batchIndex + 1} 批执行完成，等待 ${batchDelay / 1000} 秒后执行下一批 (当前暂停状态: ${isPauseTime.value.paused ? '是' : '否'}) ===`,
             type: "info",
           });
+
+          // 重要：在等待期间保持进度显示，避免长时间显示0%
+          // 进度已经在上面设置，这里不需要重复设置，但确保进入等待循环前进度是正确的
 
           let remainingSeconds = batchDelay / 1000;
           
@@ -8297,15 +8314,27 @@ const executeInBatches = async (taskFunction, taskName, taskFunctionName, isFrom
     
     // 重置 shouldStop，确保任务可以正常执行
     batchTaskStore.resetShouldStop();
+
+    // 重要：保存当前的 isRunning 状态
+    // 任务函数内部可能会调用 stopTask() 改变 isRunning 状态
+    const wasRunningBeforeTask = batchTaskStore.isRunning;
+
     try {
       await taskFunction();
-      } catch (error) {
+    } catch (error) {
       addLog({
         time: new Date().toLocaleTimeString(),
         message: `执行批次时出错: ${error.message}`,
         type: "error",
       });
       console.error('taskFunction error:', error);
+    } finally {
+      // 重要：恢复 isRunning 状态
+      // 如果任务执行前 isRunning 为 true，但任务函数内部调用了 stopTask() 将其设为 false
+      // 则需要恢复为 true，以确保分批执行和积攒队列的正常工作
+      if (wasRunningBeforeTask && !batchTaskStore.isRunning) {
+        batchTaskStore.startTask();
+      }
     }
 
     // 重要：taskFunction 执行后可能会调用 stopTask() 将 shouldStop 设为 true
@@ -8765,6 +8794,11 @@ async function startBatch(isFromQueue = false) {
             message: `=== 第 ${batchIndex + 1} 批完成，等待 ${batchSettings.batchDelay} 秒后执行下一批 ===`,
             type: "info",
           });
+
+          // 重要：在等待期间保持进度显示，避免长时间显示0%
+          // 设置进度为当前批次的进度（已完成的账号数 / 总数）
+          const currentProgress = Math.round((completedCount / totalTokens) * 100);
+          batchTaskStore.setProgress(currentProgress);
 
           let remainingSeconds = batchSettings.batchDelay;
           while (remainingSeconds > 0 && !batchTaskStore.shouldStop.value) {
