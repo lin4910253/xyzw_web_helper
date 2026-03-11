@@ -5133,6 +5133,8 @@ const updateCountdowns = () => {
       return;
     }
 
+    // 重要：即使有任务在执行，也要计算倒计时
+    // 这样可以确保定时任务调度器不被阻塞
     if (
       !nextExecutionTimes.value[task.id] ||
       nextExecutionTimes.value[task.id] <= now
@@ -5246,15 +5248,8 @@ const checkAndExecuteQueuedTasks = async () => {
     return;
   }
   
-  if (batchTaskStore.isRunning) {
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: `=== 有任务正在运行中，积攒队列等待下次检查 ===`,
-      type: "info",
-    });
-    return;
-  }
-  
+  // 重要：移除对 isRunning 的检查，确保即使有任务在执行，也能检测到时间的任务
+  // 这样可以避免定时任务调度器被阻塞
   // 设置标志防止重复执行
   isExecutingQueuedTasks.value = true;
   
@@ -8114,6 +8109,9 @@ const executeInBatchesFromState = async (taskFunction, taskName, taskFunctionNam
   // 从保存的批次开始执行
   const startBatchIndex = state.currentBatchIndex || 0;
   
+  // 重要：跟踪批次完成状态，避免同一批次无限重复执行
+  let batchCompleted = false;
+  
   addLog({
     time: new Date().toLocaleTimeString(),
     message: `=== 从第 ${startBatchIndex + 1}/${totalBatches} 批继续执行，共 ${totalTokens} 个账号 ===`,
@@ -8122,6 +8120,19 @@ const executeInBatchesFromState = async (taskFunction, taskName, taskFunctionNam
   
   for (let batchIndex = startBatchIndex; batchIndex < totalBatches; batchIndex++) {
     if (batchTaskStore.shouldStop.value) break;
+    
+    // 重要：检查上一批次是否完成，避免同一批次无限重复执行
+    if (batchIndex > startBatchIndex && !batchCompleted) {
+      addLog({
+        time: new Date().toLocaleTimeString(),
+        message: `=== 第 ${batchIndex} 批未完成，跳过 ===`,
+        type: "warning",
+      });
+      continue;
+    }
+    
+    // 重置批次完成状态
+    batchCompleted = false;
     
     // 简化版任务持久化：只保存任务队列，不保存执行进度
     // 这样可以避免复杂的状态管理问题，同时保留积攒任务功能
@@ -8151,6 +8162,8 @@ const executeInBatchesFromState = async (taskFunction, taskName, taskFunctionNam
     
     try {
       await taskFunction();
+      // 重要：标记批次为已完成
+      batchCompleted = true;
     } catch (error) {
       addLog({
         time: new Date().toLocaleTimeString(),
@@ -8158,6 +8171,8 @@ const executeInBatchesFromState = async (taskFunction, taskName, taskFunctionNam
         type: "error",
       });
       console.error('taskFunction error:', error);
+      // 重要：即使出错，也要标记批次为已完成，避免无限重试
+      batchCompleted = true;
     }
 
     // 重要：taskFunction 执行后可能会调用 stopTask() 将 shouldStop 设为 true
@@ -8721,6 +8736,28 @@ async function startBatch(isFromQueue = false) {
             tokenStatus.value[tokenId] = "completed";
             break;
           }
+          
+          // 重要：检查错误类型，如果是"已领取"或"已完成"类型的错误，标记为成功
+          // 这样可以避免无限重试已完成的任务
+          const isCompletedError = error.message && (
+            error.message.includes('已领取') ||
+            error.message.includes('已完成') ||
+            error.message.includes('没有可领取') ||
+            error.message.includes('奖励已领取')
+          );
+          
+          if (isCompletedError) {
+            // 任务实际上已完成，标记为成功
+            success = true;
+            tokenStatus.value[tokenId] = "completed";
+            addLog({
+              time: new Date().toLocaleTimeString(),
+              message: `=== ${token.name} 任务已完成（${error.message}） ===`,
+              type: "success",
+            });
+            break;
+          }
+          
           if (retryCount < MAX_RETRIES && !batchTaskStore.shouldStop.value) {
             addLog({
               time: new Date().toLocaleTimeString(),
