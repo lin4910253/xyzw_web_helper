@@ -119,7 +119,27 @@ export const useBatchTaskStore = defineStore("batchTask", () => {
     runType?: string;
     params?: any;
   }) {
-    taskQueue.value.push(task);
+    // 检查任务是否已在队列中，避免重复加入
+    const isTaskExists = taskQueue.value.some(existingTask => {
+      // 检查任务名称和类型
+      if (existingTask.name === task.name && existingTask.runType === task.runType) {
+        // 检查选中的账号是否相同
+        const existingTokens = existingTask.selectedTokens || existingTask.tokenIds || [];
+        const newTokens = task.selectedTokens || task.tokenIds || [];
+        
+        // 账号数量相同且包含相同的账号
+        return existingTokens.length === newTokens.length && 
+               existingTokens.every(tokenId => newTokens.includes(tokenId));
+      }
+      return false;
+    });
+    
+    if (!isTaskExists) {
+      taskQueue.value.push(task);
+      console.log('[BatchTask] 任务已加入队列:', task.name);
+    } else {
+      console.log('[BatchTask] 任务已在队列中，跳过重复添加:', task.name);
+    }
   }
   
   function clearTaskQueue() {

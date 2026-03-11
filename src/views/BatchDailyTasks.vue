@@ -2961,6 +2961,7 @@ import {
 } from "vue";
 import { useTokenStore, gameTokens, tokenGroups } from "@/stores/tokenStore";
 import { useBatchTaskStore } from "@/stores/batchTaskStore";
+import { useScheduledTaskStore } from "@/stores/scheduledTaskStore";
 import BlackMarketBuyer from "@/components/cards/BlackMarketBuyer.vue";
 import { DailyTaskRunner } from "@/utils/dailyTaskRunner";
 import { preloadQuestions } from "@/utils/studyQuestionsFromJSON.js";
@@ -3026,6 +3027,7 @@ import {
 // Initialize stores and services
 const tokenStore = useTokenStore();
 const batchTaskStore = useBatchTaskStore();
+const scheduledTaskStore = useScheduledTaskStore();
 const message = useMessage();
 
 const indexedDB = useIndexedDB();
@@ -4341,7 +4343,8 @@ const avatarLoadError = ref(false);
 // ======================
 
 // Scheduled Tasks State Management
-const scheduledTasks = ref([]); // List of all scheduled tasks
+// 从 Store 获取定时任务列表
+const scheduledTasks = computed(() => scheduledTaskStore.scheduledTasks);
 const showTaskModal = ref(false); // Control the visibility of the add/edit task modal
 const showTasksModal = ref(false); // Control the visibility of the tasks list modal
 const showBlackMarketBuyerModal = ref(false); // Control the visibility of the black market buyer modal
@@ -4634,18 +4637,21 @@ const saveTask = () => {
 
   if (editingTask.value) {
     // Update existing task
-    const index = scheduledTasks.value.findIndex(
-      (t) => t.id === editingTask.value.id,
-    );
-    if (index !== -1) {
-      scheduledTasks.value[index] = taskData;
-    }
+    scheduledTaskStore.updateTask(editingTask.value.id, taskData);
   } else {
     // Add new task
-    scheduledTasks.value.push(taskData);
+    scheduledTaskStore.addTask({
+      name: taskData.name,
+      taskName: taskData.name, // 暂时使用name作为taskName
+      runType: taskData.runType,
+      runTime: taskData.runTime,
+      cronExpression: taskData.cronExpression,
+      selectedTokens: taskData.selectedTokens,
+      selectedTasks: taskData.selectedTasks,
+    });
   }
 
-  saveScheduledTasks();
+  // 不再需要手动保存，Store会自动处理
 
   // Add log entry for task save
   addTaskSaveLog(taskData, isNew, addLog);
@@ -4658,8 +4664,7 @@ const saveTask = () => {
 const deleteTask = (taskId) => {
   const task = scheduledTasks.value.find((t) => t.id === taskId);
   if (task) {
-    scheduledTasks.value = scheduledTasks.value.filter((t) => t.id !== taskId);
-    saveScheduledTasks();
+    scheduledTaskStore.removeTask(taskId);
     addLog({
       time: new Date().toLocaleTimeString(),
       message: `=== 定时任务 ${task.name} 已删除 ===`,
@@ -4673,8 +4678,7 @@ const deleteTask = (taskId) => {
 const toggleTaskEnabled = (taskId, enabled) => {
   const task = scheduledTasks.value.find((t) => t.id === taskId);
   if (task) {
-    task.enabled = enabled;
-    saveScheduledTasks();
+    scheduledTaskStore.toggleTask(taskId);
     message.success(`定时任务已${enabled ? "启用" : "禁用"}`);
     addLog({
       time: new Date().toLocaleTimeString(),
@@ -5124,7 +5128,8 @@ const importConfig = async ({ file }) => {
 
 // Task countdowns ref
 const taskCountdowns = ref({});
-const nextExecutionTimes = ref({});
+// 从 Store 获取下次执行时间
+const nextExecutionTimes = computed(() => scheduledTaskStore.nextExecutionTimes);
 
 // Update countdowns for all tasks
 const updateCountdowns = () => {
@@ -5183,19 +5188,18 @@ const shortestCountdownTask = computed(() => {
   return shortestTask;
 });
 
-// Start countdown interval
+// 恢复倒计时定时器，确保 UI 倒计时实时更新
 let countdownInterval = null;
 
 const startCountdown = () => {
-  // Clear any existing interval
   if (countdownInterval) {
     clearInterval(countdownInterval);
   }
-
-  // Update countdowns immediately
+  
+  // 立即更新一次倒计时
   updateCountdowns();
-
-  // Update countdowns every second
+  
+  // 每秒更新一次
   countdownInterval = setInterval(updateCountdowns, 1000);
 };
 
@@ -5334,7 +5338,8 @@ const checkAndExecuteQueuedTasks = async () => {
             const taskFunction = getOriginalTaskFunction(subTaskName);
             if (typeof taskFunction === 'function') {
               selectedTokens.value = currentTaskTokens;
-              await executeInBatches(taskFunction, subTaskName, subTaskName, true);
+              // 使用原始任务的名称，而不是函数名
+              await executeInBatches(taskFunction, taskName, subTaskName, true);
             }
           }
           
@@ -5422,8 +5427,7 @@ const checkAndExecuteQueuedTasks = async () => {
 // Scheduled Tasks Scheduler
 // ======================
 
-// Initialize scheduled tasks from localStorage
-loadScheduledTasks();
+// 定时任务从 Store 自动加载，不需要手动加载
 
 // Watch for changes to scheduledTasks for debugging
 watch(
@@ -5942,6 +5946,9 @@ const clearRunningTask = () => {
 
 // Debug: Log initial state when component mounts
 onMounted(async () => {
+  // 立即启动倒计时定时器，确保在任何任务执行前开始更新倒计时
+  startCountdown();
+  
   // 清理过期的localStorage标记
   try {
     const now = new Date();
@@ -6096,8 +6103,6 @@ onMounted(async () => {
 
   // Start the task scheduler after all functions are initialized
   scheduleTaskExecution();
-  // Start countdown timer
-  startCountdown();
   loadTaskTemplates();
   // Start time update timer for pause time checking
   setInterval(() => {
@@ -6107,14 +6112,14 @@ onMounted(async () => {
   startResumeCheck();
 });
 
-// Cleanup countdown interval on unmount
+// Cleanup task scheduler intervals
 onBeforeUnmount(() => {
+  // 清理倒计时定时器
   if (countdownInterval) {
     clearInterval(countdownInterval);
     countdownInterval = null;
   }
-
-  // Cleanup task scheduler intervals
+  
   if (intervalId.value) {
     clearInterval(intervalId.value);
     intervalId.value = null;
@@ -6323,7 +6328,7 @@ const executeScheduledTask = async (task) => {
               type: "info",
             });
 
-            await ensureConnection(tokenId);
+            await ensureConnection(tokenId, 2, taskTaskNames, task.name);
 
             // 依次执行每个任务（不是并行）
             for (const taskName of taskTaskNames) {
@@ -6342,7 +6347,7 @@ const executeScheduledTask = async (task) => {
                   });
                   batchTaskStore.addToTaskQueue({
                     id: Date.now() + Math.random(),
-                    name: task.name,
+                    name: task.name, // 使用任务的显示名称，而不是函数名
                     runType: 'manual',
                     selectedTokens: [tokenId],
                     selectedTasks: [taskName],
@@ -6557,9 +6562,12 @@ const executeScheduledTask = async (task) => {
     }
 
     const batchSupportedTasks = ['claimHangUpRewards', 'batchAddHangUpTime', 'resetBottles', 'climbTower', 'batchStudy', 'batchSmartSendCar', 'batchClaimCars', 'batchlingguanzi', 'climbWeirdTower', 'batchbaoku13', 'batchbaoku45', 'batchmengjing', 'batchDreamBuy', 'batchclubsign', 'batcharenafight', 'batchTopUpFish', 'batchTopUpArena', 'batchClaimFreeEnergy', 'legion_storebuygoods', 'store_purchase', 'batchLegacyClaim', 'batchLegacyGiftSendEnhanced', 'batchOpenBox', 'batchFish', 'batchRecruit', 'batchClaimBoxPointReward', 'collection_claimfreereward', 'skinChallenge', 'batchMergeItems', 'batchHeroUpgrade', 'batchBookUpgrade', 'batchClaimStarRewards', 'legionStoreBuySkinCoins'];
-    if (!hasStartBatch && (task.enableBatchExecution || batchSettings.enableBatchExecution) && taskTasksList.some(taskName => batchSupportedTasks.includes(taskName))) {
-      const batchSize = task.batchSize || batchSettings.batchSize || 5;
-      const batchDelay = (task.batchDelay || batchSettings.batchDelay || 5) * 1000;
+    // 只有当定时任务明确启用了分批执行时，才使用分批执行
+    if (!hasStartBatch && task.enableBatchExecution && taskTasksList.some(taskName => batchSupportedTasks.includes(taskName))) {
+      // 优先使用定时任务的批处理大小，如果没有设置则使用默认值
+      const batchSize = task.batchSize ?? 5;
+      // 优先使用定时任务的批处理延迟，如果没有设置则使用默认值
+      const batchDelay = (task.batchDelay ?? 5) * 1000;
       const totalTokens = availableTokens.length;
       const totalBatches = Math.ceil(totalTokens / batchSize);
 
@@ -6843,6 +6851,20 @@ const handleAvatarError = () => {
   avatarLoadError.value = true;
 };
 
+// 注册全局方法，供 Store 调用
+if (typeof window !== 'undefined') {
+  window['executeScheduledTask'] = async (task) => {
+    return await executeScheduledTask(task);
+  };
+}
+
+// 清理全局方法
+onUnmounted(() => {
+  if (typeof window !== 'undefined') {
+    delete window['executeScheduledTask'];
+  }
+});
+
 const resetAvatarState = () => {
   isAvatarLoading.value = true;
   avatarLoadError.value = false;
@@ -6893,7 +6915,7 @@ const queryRecipientInfo = async () => {
     });
 
     // 使用现有的ensureConnection函数，它已经包含了重连机制
-    await ensureConnection(firstTokenId);
+    await ensureConnection(firstTokenId, 2, null, '查询接收者信息');
 
     addLog({
       time: new Date().toLocaleTimeString(),
@@ -7673,7 +7695,7 @@ const releaseConnectionSlot = () => {
   }
 };
 
-const ensureConnection = async (tokenId, maxRetries = 2, taskNames = null) => {
+const ensureConnection = async (tokenId, maxRetries = 2, taskNames = null, taskName = null) => {
   const latestToken = tokens.value.find((t) => t.id === tokenId);
   if (!latestToken) {
     throw new Error(`Token not found: ${tokenId}`);
@@ -7681,6 +7703,54 @@ const ensureConnection = async (tokenId, maxRetries = 2, taskNames = null) => {
 
   if (isPauseTime.value.paused) {
     const tasksToSave = taskNames || (selectedTasks.value.length > 0 ? selectedTasks.value : ['batchDaily']);
+    // 优先使用传入的任务名称，否则从 selectedTasks 中获取，最后使用默认名称
+    let queueTaskName = taskName;
+    if (!queueTaskName && selectedTasks.value.length > 0) {
+      // 从 selectedTasks 中获取任务名称
+      const taskFunctionName = selectedTasks.value[0];
+      // 尝试从任务函数映射中获取友好的任务名称
+      const taskMap = {
+        'claimHangUpRewards': '批量领取挂机',
+        'batchAddHangUpTime': '批量加钟',
+        'resetBottles': '重置罐子',
+        'batchlingguanzi': '一键领取罐子',
+        'climbTower': '一键爬塔',
+        'climbWeirdTower': '一键爬怪异塔',
+        'batchUseItems': '一键使用怪异塔道具',
+        'batchMergeItems': '一键合成怪异塔道具',
+        'batchStudy': '一键答题',
+        'batchSmartSendCar': '智能发车',
+        'batchClaimCars': '一键收车',
+        'batchClaimBoxPointReward': '领取宝箱积分',
+        'batchHeroUpgrade': '一键英雄升星',
+        'batchBookUpgrade': '一键图鉴升星',
+        'batchClaimStarRewards': '一键领取图鉴奖励',
+        'batchbaoku13': '一键宝库前3层',
+        'batchbaoku45': '一键宝库4,5层',
+        'batchmengjing': '一键梦境',
+        'batchDreamBuy': '梦境购买',
+        'batchclubsign': '一键俱乐部签到',
+        'batcharenafight': '一键竞技场战斗',
+        'batchTopUpFish': '一键钓鱼补齐',
+        'batchTopUpArena': '一键竞技场补齐',
+        'batchClaimFreeEnergy': '一键领取怪异塔免费道具',
+        'skinChallenge': '一键换皮闯关',
+        'legion_storebuygoods': '一键购买四圣碎片',
+        'legionStoreBuySkinCoins': '一键购买俱乐部5皮肤币',
+        'store_purchase': '一键黑市采购',
+        'collection_claimfreereward': '免费领取珍宝阁',
+        'batchLegacyClaim': '批量功法残卷领取',
+        'batchOpenBox': '批量开箱',
+        'batchFish': '批量钓鱼',
+        'batchRecruit': '批量招募',
+        'batchLegacyGiftSendEnhanced': '批量赠送功法残卷',
+        'startBatch': '批量日常任务'
+      };
+      queueTaskName = taskMap[taskFunctionName] || taskFunctionName;
+    }
+    if (!queueTaskName) {
+      queueTaskName = `任务-${latestToken.name}`;
+    }
     addLog({
       time: new Date().toLocaleTimeString(),
       message: `=== ${latestToken.name} 任务被暂停: 当前处于${isPauseTime.value.reason}，已加入积攒队列 (任务: ${tasksToSave.join(', ')}) ===`,
@@ -7688,7 +7758,7 @@ const ensureConnection = async (tokenId, maxRetries = 2, taskNames = null) => {
     });
     batchTaskStore.addToTaskQueue({
       id: Date.now() + Math.random(),
-      name: `任务-${latestToken.name}`,
+      name: queueTaskName,
       runType: 'manual',
       selectedTokens: [tokenId],
       selectedTasks: tasksToSave,
@@ -8671,7 +8741,7 @@ async function startBatch(isFromQueue = false) {
             });
           }
 
-          await ensureConnection(tokenId);
+          await ensureConnection(tokenId, 2, ['startBatch'], '批量日常任务');
 
           const runner = new DailyTaskRunner(tokenStore, {
             commandDelay: batchSettings.commandDelay,
