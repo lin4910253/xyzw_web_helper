@@ -4230,7 +4230,7 @@ const batchSettings = reactive({
   taskDelay: 500,           // 任务间延迟
   actionDelay: 300,         // 一般操作延迟（开箱、钓鱼、招募等）
   battleDelay: 500,         // 战斗延迟（宝库、竞技场等）
-  refreshDelay: 1000,       // 刷新延迟（发车刷新等）
+  refreshDelay: 1500,       // 刷新延迟（发车刷新等）
   longDelay: 3000,          // 长延迟（功法赠送等）
   // 其他配置
   maxActive: 5,

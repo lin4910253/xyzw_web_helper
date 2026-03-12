@@ -548,40 +548,208 @@ export class DailyTaskRunner {
       });
     }
 
-    // 4. 固定奖励
-    const fixedRewards = [
-      { name: "福利签到", cmd: "system_signinreward" },
-      { name: "俱乐部", cmd: "legion_signin" },
-      { name: "领取每日礼包", cmd: "discount_claimreward" },
-      { name: "领取每日免费奖励", cmd: "collection_claimfreereward" },
-      { name: "领取免费礼包", cmd: "card_claimreward" },
-      {
-        name: "领取永久卡礼包",
-        cmd: "card_claimreward",
-        params: { cardId: 4003 },
-      },
-    ];
-
-    if (settings.claimEmail) {
-      fixedRewards.push({
-        name: "领取邮件奖励",
-        cmd: "mail_claimallattachment",
+    // 4. 固定奖励 - 执行前实时检查是否可领取
+    // 福利签到
+    if (isTodayAvailable(statisticsTime["system:signinreward"])) {
+      taskList.push({
+        name: "福利签到",
+        execute: async () => {
+          // 执行前实时检查
+          try {
+            const roleRes = await this.tokenStore.sendMessageWithPromise(
+              tokenId,
+              "role_getroleinfo",
+              {},
+              5000,
+            );
+            const currentStatisticsTime = roleRes?.role?.statisticsTime || {};
+            if (!isTodayAvailable(currentStatisticsTime["system:signinreward"])) {
+              this.log("福利签到今天已完成，跳过", "info");
+              return;
+            }
+          } catch (e) {
+            this.log(`检查福利签到状态失败: ${e.message}，尝试直接执行`, "warning");
+          }
+          await this.executeGameCommand(tokenId, "system_signinreward", {}, "福利签到");
+        },
       });
     }
 
-    fixedRewards.forEach((reward) => {
+    // 俱乐部签到
+    if (isTodayAvailable(statisticsTime["legion:signin"])) {
       taskList.push({
-        name: reward.name,
-        execute: () =>
-          this.executeGameCommand(
-            tokenId,
-            reward.cmd,
-            reward.params || {},
-            reward.name,
-          ),
+        name: "俱乐部签到",
+        execute: async () => {
+          try {
+            const roleRes = await this.tokenStore.sendMessageWithPromise(
+              tokenId,
+              "role_getroleinfo",
+              {},
+              5000,
+            );
+            const currentStatisticsTime = roleRes?.role?.statisticsTime || {};
+            if (!isTodayAvailable(currentStatisticsTime["legion:signin"])) {
+              this.log("俱乐部签到今天已完成，跳过", "info");
+              return;
+            }
+          } catch (e) {
+            this.log(`检查俱乐部签到状态失败: ${e.message}，尝试直接执行`, "warning");
+          }
+          await this.executeGameCommand(tokenId, "legion_signin", {}, "俱乐部签到");
+        },
       });
+    }
+
+    // 领取每日礼包
+    if (isTodayAvailable(statisticsTime["discount:claimreward:1"])) {
+      taskList.push({
+        name: "领取每日礼包",
+        execute: async () => {
+          try {
+            const roleRes = await this.tokenStore.sendMessageWithPromise(
+              tokenId,
+              "role_getroleinfo",
+              {},
+              5000,
+            );
+            const currentStatisticsTime = roleRes?.role?.statisticsTime || {};
+            if (!isTodayAvailable(currentStatisticsTime["discount:claimreward:1"])) {
+              this.log("每日礼包今天已领取，跳过", "info");
+              return;
+            }
+          } catch (e) {
+            this.log(`检查每日礼包状态失败: ${e.message}，尝试直接执行`, "warning");
+          }
+          await this.executeGameCommand(tokenId, "discount_claimreward", { discountId: 1 }, "领取每日礼包");
+        },
+      });
+    }
+
+    // 领取每日免费奖励（珍宝阁）
+    if (isTodayAvailable(statisticsTime["collection:claimfreereward"])) {
+      taskList.push({
+        name: "领取每日免费奖励",
+        execute: async () => {
+          try {
+            const roleRes = await this.tokenStore.sendMessageWithPromise(
+              tokenId,
+              "role_getroleinfo",
+              {},
+              5000,
+            );
+            const currentStatisticsTime = roleRes?.role?.statisticsTime || {};
+            if (!isTodayAvailable(currentStatisticsTime["collection:claimfreereward"])) {
+              this.log("每日免费奖励今天已领取，跳过", "info");
+              return;
+            }
+          } catch (e) {
+            this.log(`检查每日免费奖励状态失败: ${e.message}，尝试直接执行`, "warning");
+          }
+          await this.executeGameCommand(tokenId, "collection_claimfreereward", {}, "领取每日免费奖励");
+        },
+      });
+    }
+
+    // 领取免费礼包（普通卡）
+    if (isTodayAvailable(statisticsTime["card:claimreward:1"])) {
+      taskList.push({
+        name: "领取免费礼包",
+        execute: async () => {
+          try {
+            const roleRes = await this.tokenStore.sendMessageWithPromise(
+              tokenId,
+              "role_getroleinfo",
+              {},
+              5000,
+            );
+            const currentStatisticsTime = roleRes?.role?.statisticsTime || {};
+            if (!isTodayAvailable(currentStatisticsTime["card:claimreward:1"])) {
+              this.log("免费礼包今天已领取，跳过", "info");
+              return;
+            }
+          } catch (e) {
+            this.log(`检查免费礼包状态失败: ${e.message}，尝试直接执行`, "warning");
+          }
+          await this.executeGameCommand(tokenId, "card_claimreward", { cardId: 1 }, "领取免费礼包");
+        },
+      });
+    }
+
+    // 领取永久卡礼包 - 检查用户是否有永久卡
+    taskList.push({
+      name: "领取永久卡礼包",
+      execute: async () => {
+        try {
+          const roleRes = await this.tokenStore.sendMessageWithPromise(
+            tokenId,
+            "role_getroleinfo",
+            {},
+            5000,
+          );
+          const cards = roleRes?.role?.cards || {};
+          const currentStatisticsTime = roleRes?.role?.statisticsTime || {};
+
+          // 检查是否有永久卡（cardId: 4003）
+          if (!cards[4003]) {
+            this.log("未购买永久卡，跳过领取", "info");
+            return;
+          }
+
+          // 检查今天是否已领取
+          if (!isTodayAvailable(currentStatisticsTime["card:claimreward:4003"])) {
+            this.log("永久卡礼包今天已领取，跳过", "info");
+            return;
+          }
+
+          await this.executeGameCommand(
+            tokenId,
+            "card_claimreward",
+            { cardId: 4003 },
+            "领取永久卡礼包",
+          );
+        } catch (e) {
+          this.log(`检查永久卡状态失败: ${e.message}，尝试直接执行`, "warning");
+          await this.executeGameCommand(
+            tokenId,
+            "card_claimreward",
+            { cardId: 4003 },
+            "领取永久卡礼包",
+          );
+        }
+      },
     });
 
+    // 领取邮件奖励
+    if (settings.claimEmail) {
+      taskList.push({
+        name: "领取邮件奖励",
+        execute: async () => {
+          try {
+            // 先获取邮件列表检查是否有未领取附件的邮件
+            const mailRes = await this.tokenStore.sendMessageWithPromise(
+              tokenId,
+              "mail_getlist",
+              { category: [0, 4, 5], lastId: 0, size: 60 },
+              10000,
+            );
+            const mails = mailRes?.mails || [];
+            const hasUnclaimedAttachment = mails.some(
+              (mail) => mail.hasAttachment && !mail.isClaimed
+            );
+
+            if (!hasUnclaimedAttachment) {
+              this.log("没有未领取附件的邮件，跳过", "info");
+              return;
+            }
+          } catch (e) {
+            this.log(`检查邮件状态失败: ${e.message}，尝试直接执行`, "warning");
+          }
+          await this.executeGameCommand(tokenId, "mail_claimallattachment", { category: 0 }, "领取邮件奖励");
+        },
+      });
+    }
+
+    // 领取珍宝阁免费礼包（额外的珍宝阁领取）
     taskList.push({
       name: "开始领取珍宝阁礼包",
       execute: () =>
@@ -594,13 +762,29 @@ export class DailyTaskRunner {
     });
     taskList.push({
       name: "领取珍宝阁免费礼包",
-      execute: () =>
-        this.executeGameCommand(
+      execute: async () => {
+        try {
+          const roleRes = await this.tokenStore.sendMessageWithPromise(
+            tokenId,
+            "role_getroleinfo",
+            {},
+            5000,
+          );
+          const currentStatisticsTime = roleRes?.role?.statisticsTime || {};
+          if (!isTodayAvailable(currentStatisticsTime["collection:claimfreereward"])) {
+            this.log("珍宝阁免费礼包今天已领取，跳过", "info");
+            return;
+          }
+        } catch (e) {
+          this.log(`检查珍宝阁礼包状态失败: ${e.message}，尝试直接执行`, "warning");
+        }
+        await this.executeGameCommand(
           tokenId,
           "collection_claimfreereward",
           {},
           "领取珍宝阁免费礼包",
-        ),
+        );
+      },
     });
 
     // 5. 免费活动
@@ -635,7 +819,7 @@ export class DailyTaskRunner {
     const kingdoms = ["魏国", "蜀国", "吴国", "群雄"];
     // 使用本地Set跟踪已扫荡的国家，避免重复执行
     const sweptKingdoms = new Set();
-    
+
     for (let gid = 1; gid <= 4; gid++) {
       if (isTodayAvailable(statisticsTime[`genie:daily:free:${gid}`])) {
         taskList.push({
@@ -646,6 +830,27 @@ export class DailyTaskRunner {
               this.log(`${kingdoms[gid - 1]}灯神今天已扫荡，跳过`, "info");
               return;
             }
+
+            // 执行前实时检查是否还有免费次数（防止手动扫荡后重复执行）
+            try {
+              const roleRes = await this.tokenStore.sendMessageWithPromise(
+                tokenId,
+                "role_getroleinfo",
+                {},
+                5000,
+              );
+              const currentStatisticsTime = roleRes?.role?.statisticsTime || {};
+
+              // 如果今天已经扫荡过（没有免费次数了），则跳过
+              if (!isTodayAvailable(currentStatisticsTime[`genie:daily:free:${gid}`])) {
+                this.log(`${kingdoms[gid - 1]}灯神今天已扫荡过（无免费次数），跳过`, "info");
+                sweptKingdoms.add(gid);
+                return;
+              }
+            } catch (e) {
+              this.log(`检查${kingdoms[gid - 1]}灯神免费次数失败: ${e.message}，尝试直接执行`, "warning");
+            }
+
             await this.executeGameCommand(
               tokenId,
               "genie_sweep",
@@ -726,20 +931,48 @@ export class DailyTaskRunner {
       });
     }
 
-    // 深海灯神 - 不受 genieSweep 开关控制，周日执行
+    // 深海灯神 - 不受 genieSweep 开关控制，周六周日都执行，但会检查免费次数
+    // 周六(6)和周日(0)都尝试执行，如果已经手动扫荡过则跳过
     if (
-      mengyandayOfWeek === 0 &&
+      (mengyandayOfWeek === 0 || mengyandayOfWeek === 6) &&
       isTodayAvailable(statisticsTime[`genie:daily:free:5`])
     ) {
       taskList.push({
         name: "深海灯神",
-        execute: () =>
-          this.executeGameCommand(
-            tokenId,
-            "genie_sweep",
-            { genieId: 5, sweepCnt: 1 },
-            "深海灯神",
-          ),
+        execute: async () => {
+          // 再次检查是否还有免费次数（防止手动扫荡后重复执行）
+          try {
+            const roleRes = await this.tokenStore.sendMessageWithPromise(
+              tokenId,
+              "role_getroleinfo",
+              {},
+              5000,
+            );
+            const statisticsTime = roleRes?.role?.statisticsTime || {};
+            
+            // 如果今天已经扫荡过（没有免费次数了），则跳过
+            if (!isTodayAvailable(statisticsTime[`genie:daily:free:5`])) {
+              this.log("深海灯神今天已扫荡过（无免费次数），跳过", "info");
+              return;
+            }
+            
+            await this.executeGameCommand(
+              tokenId,
+              "genie_sweep",
+              { genieId: 5, sweepCnt: 1 },
+              "深海灯神",
+            );
+          } catch (e) {
+            // 如果检查失败，尝试直接执行
+            this.log(`检查深海灯神免费次数失败: ${e.message}，尝试直接执行`, "warning");
+            await this.executeGameCommand(
+              tokenId,
+              "genie_sweep",
+              { genieId: 5, sweepCnt: 1 },
+              "深海灯神",
+            );
+          }
+        },
       });
     }
 

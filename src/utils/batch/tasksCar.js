@@ -394,13 +394,44 @@ export function createTasksCar(deps) {
                   { carId: String(car.id) },
                   10000,
                 );
-                const data = resp?.car || resp?.body?.car || resp;
 
-                if (data && typeof data === "object") {
-                  if (data.color != null) car.color = Number(data.color);
-                  if (data.refreshCount != null)
-                    car.refreshCount = Number(data.refreshCount);
-                  if (data.rewards != null) car.rewards = data.rewards;
+                // 增加额外延迟，确保服务器数据已更新
+                await new Promise((r) => setTimeout(r, 500));
+
+                // 重新查询车辆列表获取最新数据
+                try {
+                  const carRes = await tokenStore.sendMessageWithPromise(
+                    tokenId,
+                    "car_getrolecar",
+                    {},
+                    10000,
+                  );
+                  const carList = normalizeCars(carRes?.body ?? carRes);
+                  const updatedCar = carList.find((c) => String(c.id) === String(car.id));
+                  if (updatedCar) {
+                    car.color = Number(updatedCar.color || 0);
+                    car.refreshCount = Number(updatedCar.refreshCount || 0);
+                    car.rewards = updatedCar.rewards || [];
+                    addLog({
+                      time: new Date().toLocaleTimeString(),
+                      message: `${token.name} 刷新后车辆数据已更新: [${gradeLabel(car.color)}]`,
+                      type: "info",
+                    });
+                  }
+                } catch (e) {
+                  // 如果重新查询失败，使用刷新接口返回的数据
+                  const data = resp?.car || resp?.body?.car || resp;
+                  if (data && typeof data === "object") {
+                    if (data.color != null) car.color = Number(data.color);
+                    if (data.refreshCount != null)
+                      car.refreshCount = Number(data.refreshCount);
+                    if (data.rewards != null) car.rewards = data.rewards;
+                  }
+                  addLog({
+                    time: new Date().toLocaleTimeString(),
+                    message: `${token.name} 使用刷新接口返回数据: [${gradeLabel(car.color)}]`,
+                    type: "warning",
+                  });
                 }
 
                 try {
@@ -575,13 +606,44 @@ export function createTasksCar(deps) {
                   { carId: String(car.id) },
                   10000,
                 );
-                const data = resp?.car || resp?.body?.car || resp;
 
-                if (data && typeof data === "object") {
-                  if (data.color != null) car.color = Number(data.color);
-                  if (data.refreshCount != null)
-                    car.refreshCount = Number(data.refreshCount);
-                  if (data.rewards != null) car.rewards = data.rewards;
+                // 增加额外延迟，确保服务器数据已更新
+                await new Promise((r) => setTimeout(r, 500));
+
+                // 重新查询车辆列表获取最新数据
+                try {
+                  const carRes = await tokenStore.sendMessageWithPromise(
+                    tokenId,
+                    "car_getrolecar",
+                    {},
+                    10000,
+                  );
+                  const carList = normalizeCars(carRes?.body ?? carRes);
+                  const updatedCar = carList.find((c) => String(c.id) === String(car.id));
+                  if (updatedCar) {
+                    car.color = Number(updatedCar.color || 0);
+                    car.refreshCount = Number(updatedCar.refreshCount || 0);
+                    car.rewards = updatedCar.rewards || [];
+                    addLog({
+                      time: new Date().toLocaleTimeString(),
+                      message: `${token.name} 刷新后车辆数据已更新: [${gradeLabel(car.color)}]`,
+                      type: "info",
+                    });
+                  }
+                } catch (e) {
+                  // 如果重新查询失败，使用刷新接口返回的数据
+                  const data = resp?.car || resp?.body?.car || resp;
+                  if (data && typeof data === "object") {
+                    if (data.color != null) car.color = Number(data.color);
+                    if (data.refreshCount != null)
+                      car.refreshCount = Number(data.refreshCount);
+                    if (data.rewards != null) car.rewards = data.rewards;
+                  }
+                  addLog({
+                    time: new Date().toLocaleTimeString(),
+                    message: `${token.name} 使用刷新接口返回数据: [${gradeLabel(car.color)}]`,
+                    type: "warning",
+                  });
                 }
 
                 try {
