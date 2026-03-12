@@ -6271,6 +6271,21 @@ const executeScheduledTask = async (task) => {
   const taskTokenIds = task.tokenIds || task.selectedTokens || task.connectedTokens || [];
   const taskTaskNames = task.taskNames || task.selectedTasks || ['batchDaily'];
   
+  // 安全检查：如果 isRunning 为 true 但没有实际任务在执行（可能是之前任务异常退出），则重置状态
+  if (batchTaskStore.isRunning.value) {
+    const now = Date.now();
+    const tenMinutesAgo = now - 10 * 60 * 1000;
+    // 如果上次任务执行时间超过10分钟，认为状态异常，强制重置
+    if (!lastTaskExecution || lastTaskExecution < tenMinutesAgo) {
+      addLog({
+        time: new Date().toLocaleTimeString(),
+        message: `=== 检测到任务状态异常（isRunning 卡在 true），强制重置状态 ===`,
+        type: "warning",
+      });
+      batchTaskStore.stopTask();
+    }
+  }
+  
   // 标记任务正在执行，防止被重复加入积攒队列
   safeLocalStorage.setItem(`task_executing_${task.id}`, Date.now().toString());
   
@@ -8687,6 +8702,21 @@ const getOriginalTaskFunction = (taskName) => {
 async function startBatch(isFromQueue = false) {
   if (selectedTokens.value.length === 0) return;
 
+  // 安全检查：如果 isRunning 为 true 但没有实际任务在执行（可能是之前任务异常退出），则重置状态
+  if (batchTaskStore.isRunning.value) {
+    const now = Date.now();
+    const tenMinutesAgo = now - 10 * 60 * 1000;
+    // 如果上次任务执行时间超过10分钟，认为状态异常，强制重置
+    if (!lastTaskExecution || lastTaskExecution < tenMinutesAgo) {
+      addLog({
+        time: new Date().toLocaleTimeString(),
+        message: `=== 检测到任务状态异常（isRunning 卡在 true），强制重置状态 ===`,
+        type: "warning",
+      });
+      batchTaskStore.stopTask();
+    }
+  }
+
   // 检测任务冲突：有任务正在运行（只有不是从积攒队列执行时才检测）
   if (!isFromQueue && batchTaskStore.isRunning) {
     // 检测到任务冲突，加入积攒队列依次执行，避免IP限制
@@ -8970,6 +9000,8 @@ async function startBatch(isFromQueue = false) {
                   });
                 }
               }
+              // 重要：暂停时重置任务状态，避免进度条一直显示
+              batchTaskStore.stopTask();
               return;
             }
 
