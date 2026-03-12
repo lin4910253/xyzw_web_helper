@@ -989,53 +989,102 @@ export class DailyTaskRunner {
       });
     }
 
-    // 7. 任务奖励
+    // 7. 任务奖励 - 改进版，确保正确领取活跃奖励
+    
+    // 先领取具体的每日任务奖励（每个任务的完成奖励）
     for (let taskId = 1; taskId <= 10; taskId++) {
       taskList.push({
         name: `领取任务奖励${taskId}`,
-        execute: () =>
-          this.executeGameCommand(
-            tokenId,
-            "task_claimdailypoint",
-            { taskId },
-            `领取任务奖励${taskId}`,
-            5000,
-          ),
+        execute: async () => {
+          try {
+            await this.executeGameCommand(
+              tokenId,
+              "task_claimdailypoint",
+              { taskId },
+              `领取任务奖励${taskId}`,
+              5000,
+            );
+          } catch (e) {
+            this.log(`领取任务奖励${taskId}失败: ${e.message}`, "warning");
+            // 即使失败也继续执行其他任务
+          }
+        },
       });
     }
 
-    taskList.push(
-      {
-        name: "领取日常任务奖励",
-        execute: () =>
-          this.executeGameCommand(
-            tokenId,
-            "task_claimdailyreward",
-            {},
-            "领取日常任务奖励",
-          ),
+    // 再领取日常任务奖励（活跃点数）
+    taskList.push({
+      name: "领取日常任务奖励",
+      execute: async () => {
+        try {
+          // 尝试多次领取，确保所有可领取的奖励都能领取
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              await this.executeGameCommand(
+                tokenId,
+                "task_claimdailyreward",
+                {},
+                `领取日常任务奖励 (尝试 ${attempt}/3)`,
+              );
+              // 每次领取后等待一下，确保服务器数据更新
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            } catch (e) {
+              this.log(`领取日常任务奖励失败 (尝试 ${attempt}/3): ${e.message}`, "warning");
+              // 继续尝试，直到达到最大尝试次数
+              if (attempt === 3) {
+                throw e;
+              }
+            }
+          }
+        } catch (e) {
+          this.log(`领取日常任务奖励最终失败: ${e.message}`, "error");
+          // 即使失败也继续执行其他任务
+        }
       },
-      {
-        name: "领取周常任务奖励",
-        execute: () =>
-          this.executeGameCommand(
-            tokenId,
-            "task_claimweekreward",
-            {},
-            "领取周常任务奖励",
-          ),
+    });
+
+    // 再领取周常任务奖励
+    taskList.push({
+      name: "领取周常任务奖励",
+      execute: async () => {
+        try {
+          // 尝试多次领取，确保所有可领取的奖励都能领取
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              await this.executeGameCommand(
+                tokenId,
+                "task_claimweekreward",
+                {},
+                `领取周常任务奖励 (尝试 ${attempt}/3)`,
+              );
+              // 每次领取后等待一下，确保服务器数据更新
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            } catch (e) {
+              this.log(`领取周常任务奖励失败 (尝试 ${attempt}/3): ${e.message}`, "warning");
+              // 继续尝试，直到达到最大尝试次数
+              if (attempt === 3) {
+                throw e;
+              }
+            }
+          }
+        } catch (e) {
+          this.log(`领取周常任务奖励最终失败: ${e.message}`, "error");
+          // 即使失败也继续执行其他任务
+        }
       },
-      {
-        name: "领取通行证奖励",
-        execute: () =>
-          this.executeGameCommand(
-            tokenId,
-            "activity_recyclewarorderrewardclaim",
-            { actId: 1 },
-            "领取通行证奖励",
-          ),
-      },
-    );
+    });
+
+    // 领取通行证奖励
+    taskList.push({
+      name: "领取通行证奖励",
+      execute: () =>
+        this.executeGameCommand(
+          tokenId,
+          "activity_recyclewarorderrewardclaim",
+          { actId: 1 },
+          "领取通行证奖励",
+        ),
+    });
 
     // 执行
     const totalTasks = taskList.length;
