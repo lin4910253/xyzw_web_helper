@@ -6013,7 +6013,7 @@ const startScheduler = () => {
           }
           
           // 检查是否有其他任务正在运行
-          if (batchTaskStore.isRunning) {
+          if (batchTaskStore.isRunning.value) {
             // 有任务正在运行，将定时任务加入积攒队列
             addLog({
               time: currentTime,
@@ -6055,7 +6055,7 @@ const startScheduler = () => {
                 selectedTasks: [...task.selectedTasks],
               });
             }
-          } else if (batchTaskStore.isRunning) {
+          } else if (batchTaskStore.isRunning.value) {
             // 有任务正在运行，加入积攒队列
             if (existingTaskIndex === -1) {
               enhancedAddLog({
@@ -8992,7 +8992,7 @@ async function startBatch(isFromQueue = false, preserveOrder = false) {
   }
 
   // 检测任务冲突：有任务正在运行（只有不是从积攒队列执行时才检测）
-  if (!isFromQueue && batchTaskStore.isRunning) {
+  if (!isFromQueue && batchTaskStore.isRunning.value) {
     // 检测到任务冲突，加入积攒队列依次执行，避免IP限制
     addLog({
       time: new Date().toLocaleTimeString(),
