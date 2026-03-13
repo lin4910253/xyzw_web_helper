@@ -841,7 +841,7 @@
             
             <!-- 积攒的任务队列（有积攒任务时显示） -->
             <div
-              v-if="(batchTaskStore.taskQueue || []).length > 0"
+              v-if="(batchTaskStore.taskQueue.value || []).length > 0"
               style="
                 display: flex;
                 flex-direction: column;
@@ -854,7 +854,7 @@
               "
             >
               <div style="font-weight: bold; color: #1976d2; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
-                <span>积攒任务队列 ({{ (batchTaskStore.taskQueue || []).length }} 个任务)</span>
+                <span>积攒任务队列 ({{ (batchTaskStore.taskQueue.value || []).length }} 个任务)</span>
                 <n-button
                   size="tiny"
                   type="error"
@@ -864,7 +864,7 @@
                 </n-button>
               </div>
               <div
-                v-for="(task, index) in batchTaskStore.taskQueue" 
+                v-for="(task, index) in batchTaskStore.taskQueue.value" 
                 :key="index"
                 style="
                   padding: 8px;
@@ -912,7 +912,7 @@
             
             <!-- 无任务时显示 -->
             <div
-              v-if="!shortestCountdownTask && (!isPauseTime.paused || (batchTaskStore.taskQueue || []).length === 0)"
+              v-if="!shortestCountdownTask && (!isPauseTime.paused || (batchTaskStore.taskQueue.value || []).length === 0)"
               style="
                 text-align: center;
                 padding: 24px;
@@ -3530,7 +3530,7 @@ const resumeCheckInterval = ref(null); // 恢复时间检查定时器
 // 从localStorage加载任务队列
 const loadTaskQueueFromStorage = () => {
   // 如果队列已经有数据，先清空（避免热更新时重复添加）
-  if (batchTaskStore.taskQueue.length > 0) {
+  if (batchTaskStore.taskQueue.value.length > 0) {
     batchTaskStore.clearTaskQueue();
   }
   
@@ -3543,10 +3543,10 @@ const loadTaskQueueFromStorage = () => {
         parsedQueue.forEach(task => {
           batchTaskStore.addToTaskQueue(task);
         });
-        if (batchTaskStore.taskQueue.length > 0) {
+        if (batchTaskStore.taskQueue.value.length > 0) {
           addLog({
             time: new Date().toLocaleTimeString(),
-            message: `=== 从本地存储加载了 ${batchTaskStore.taskQueue.length} 个积攒任务 ===`,
+            message: `=== 从本地存储加载了 ${batchTaskStore.taskQueue.value.length} 个积攒任务 ===`,
             type: "info",
           });
         }
@@ -3571,7 +3571,7 @@ const loadTaskQueueFromStorage = () => {
 const saveTaskQueueToStorage = () => {
   try {
     // 验证任务队列数据结构，确保可以安全序列化
-    const queue = batchTaskStore.taskQueue || [];
+    const queue = batchTaskStore.taskQueue.value || [];
     if (!Array.isArray(queue)) {
       console.error('任务队列不是数组:', queue);
       return;
@@ -3640,7 +3640,7 @@ const clearTaskQueue = () => {
 };
 
 // 监听任务队列变化，自动保存
-watch(() => batchTaskStore.taskQueue, () => {
+watch(() => batchTaskStore.taskQueue.value, () => {
   saveTaskQueueToStorage();
 }, { deep: true });
 
@@ -4614,7 +4614,7 @@ const manualExecuteTask = async (task) => {
     });
     addLog({
       time: new Date().toLocaleTimeString(),
-      message: `=== 任务 ${task.name} 已加入积攒队列，当前队列长度: ${batchTaskStore.taskQueue.length} ===`,
+      message: `=== 任务 ${task.name} 已加入积攒队列，当前队列长度: ${batchTaskStore.taskQueue.value.length} ===`,
       type: "info",
     });
     return;
@@ -5394,7 +5394,7 @@ const startResumeCheck = () => {
   let wasPaused = false;
 
   resumeCheckInterval.value = setInterval(() => {
-    const queue = batchTaskStore.taskQueue || [];
+    const queue = batchTaskStore.taskQueue.value || [];
     const isCurrentlyPaused = isPauseTime.value.paused;
     
     // 检测暂停时间结束（从暂停状态变为非暂停状态）
@@ -5417,7 +5417,7 @@ const startResumeCheck = () => {
 
 // 检查并执行积攒队列中的任务（用于任务完成后自动执行）
 const checkAndExecuteQueuedTasks = async () => {
-  const queue = batchTaskStore.taskQueue || [];
+  const queue = batchTaskStore.taskQueue.value || [];
   
   if (queue.length === 0) {
     return;
@@ -5522,11 +5522,11 @@ const checkAndExecuteQueuedTasks = async () => {
           
           // 重要：任务执行成功后，立即从积攒队列中移除
           // 避免页面刷新后重复执行已完成的任务
-          const taskIndex = batchTaskStore.taskQueue.findIndex(t => t.id === task.id);
+          const taskIndex = batchTaskStore.taskQueue.value.findIndex(t => t.id === task.id);
           if (taskIndex > -1) {
-            batchTaskStore.taskQueue.splice(taskIndex, 1);
+            batchTaskStore.taskQueue.value.splice(taskIndex, 1);
             // 保存更新后的队列到本地存储
-            safeLocalStorage.setItem('batch_task_queue', JSON.stringify(batchTaskStore.taskQueue));
+            safeLocalStorage.setItem('batch_task_queue', JSON.stringify(batchTaskStore.taskQueue.value));
             addLog({
               time: new Date().toLocaleTimeString(),
               message: `=== 积攒任务 ${taskName} 执行完成，已从队列中移除 ===`,
@@ -5556,7 +5556,7 @@ const checkAndExecuteQueuedTasks = async () => {
     // 这样可以确保即使部分任务成功，其他未执行的任务也不会被清空
     // 保存更新后的队列到本地存储，确保序列化安全
     try {
-      safeLocalStorage.setItem('batch_task_queue', JSON.stringify(batchTaskStore.taskQueue));
+      safeLocalStorage.setItem('batch_task_queue', JSON.stringify(batchTaskStore.taskQueue.value));
     } catch (serializationError) {
       console.error('保存任务队列失败:', serializationError);
       addLog({
@@ -6031,7 +6031,7 @@ const startScheduler = () => {
           }
           
           // 检查任务是否已经在队列中（同时检查任务名称、任务类型和账号列表）
-          const existingTaskIndex = batchTaskStore.taskQueue.findIndex(t => {
+          const existingTaskIndex = batchTaskStore.taskQueue.value.findIndex(t => {
             const sameName = t.name === task.name;
             const sameTasks = JSON.stringify(t.selectedTasks?.sort()) === JSON.stringify(task.selectedTasks?.sort());
             const sameTokens = JSON.stringify(t.selectedTokens?.sort()) === JSON.stringify(task.selectedTokens?.sort());
@@ -6546,7 +6546,7 @@ const executeScheduledTask = async (task) => {
 
               if (isPauseTime.value.paused) {
                 // 检查任务是否已经在积攒队列中（同时检查任务名称和任务类型）
-                const existingTaskIndex = batchTaskStore.taskQueue.findIndex(t => 
+                const existingTaskIndex = batchTaskStore.taskQueue.value.findIndex(t => 
                   t.name === task.name && 
                   JSON.stringify(t.selectedTasks?.sort()) === JSON.stringify([taskName].sort())
                 );
@@ -6567,7 +6567,7 @@ const executeScheduledTask = async (task) => {
                   });
                 } else {
                   // 任务已在队列中，将当前账号添加到已有任务
-                  const existingTask = batchTaskStore.taskQueue[existingTaskIndex];
+                  const existingTask = batchTaskStore.taskQueue.value[existingTaskIndex];
                   if (!existingTask.selectedTokens.includes(tokenId)) {
                     existingTask.selectedTokens.push(tokenId);
                     addLog({
@@ -6615,7 +6615,7 @@ const executeScheduledTask = async (task) => {
             console.error(error);
             if (error.isPause) {
               // 检查任务是否已经在积攒队列中（同时检查任务名称和任务类型）
-              const existingTaskIndex = batchTaskStore.taskQueue.findIndex(t => 
+              const existingTaskIndex = batchTaskStore.taskQueue.value.findIndex(t => 
                 t.name === task.name && 
                 JSON.stringify(t.selectedTasks?.sort()) === JSON.stringify(selectedTasks.value?.sort())
               );
@@ -6631,7 +6631,7 @@ const executeScheduledTask = async (task) => {
                 });
               } else {
                 // 任务已在队列中，将当前账号添加到已有任务
-                const existingTask = batchTaskStore.taskQueue[existingTaskIndex];
+                const existingTask = batchTaskStore.taskQueue.value[existingTaskIndex];
                 if (!existingTask.selectedTokens.includes(tokenId)) {
                   existingTask.selectedTokens.push(tokenId);
                 }
@@ -6667,11 +6667,11 @@ const executeScheduledTask = async (task) => {
       batchTaskStore.stopTask();
       
       // 从积攒队列中移除已执行的任务
-      const taskIndex = batchTaskStore.taskQueue.findIndex(t => t.id === task.id);
+      const taskIndex = batchTaskStore.taskQueue.value.findIndex(t => t.id === task.id);
       if (taskIndex !== -1) {
-        batchTaskStore.taskQueue.splice(taskIndex, 1);
+        batchTaskStore.taskQueue.value.splice(taskIndex, 1);
         // 保存到本地存储
-        localStorage.setItem('taskQueue', JSON.stringify(batchTaskStore.taskQueue));
+        localStorage.setItem('taskQueue', JSON.stringify(batchTaskStore.taskQueue.value));
       }
       
       addLog({
@@ -6916,7 +6916,7 @@ const executeScheduledTask = async (task) => {
               }
               
               // 检查任务是否已经在积攒队列中（避免重复添加）
-              const existingTask = batchTaskStore.taskQueue.find(t => t.name === task.name);
+              const existingTask = batchTaskStore.taskQueue.value.find(t => t.name === task.name);
               if (existingTask) {
                 addLog({
                   time: new Date().toLocaleTimeString(),
@@ -8106,7 +8106,7 @@ const createTaskDeps = () => ({
   message,
   currentRunningTokenId: toRef(batchTaskStore, 'currentRunningTokenId'),
   isPauseTime,
-  taskQueue: batchTaskStore.taskQueue || [],
+  taskQueue: batchTaskStore.taskQueue.value || [],
   selectedTasks,
   // Store 方法
   startTask: batchTaskStore.startTask,
@@ -8648,7 +8648,7 @@ const executeInBatches = async (taskFunction, taskName, taskFunctionName, isFrom
 
       // 检查任务是否已经在积攒队列中（避免重复添加）
       // 同时检查任务名称、任务类型和账号列表
-      const existingTask = batchTaskStore.taskQueue.find(t => {
+      const existingTask = batchTaskStore.taskQueue.value.find(t => {
         const sameName = t.name === taskName;
         const sameTasks = JSON.stringify(t.selectedTasks?.sort()) === JSON.stringify([taskFunctionName || taskName].sort());
         const sameTokens = JSON.stringify(t.selectedTokens?.sort()) === JSON.stringify(remainingTokens.sort());
@@ -9259,7 +9259,7 @@ async function startBatch(isFromQueue = false, preserveOrder = false) {
               const remainingTokens = sortedSelectedTokens.slice((batchIndex + 1) * batchSize);
               if (remainingTokens.length > 0) {
                 // 检查是否已经有相同的剩余任务在队列中
-                const existingTask = batchTaskStore.taskQueue.find(t => t.name === '批量任务-剩余账号');
+              const existingTask = batchTaskStore.taskQueue.value.find(t => t.name === '批量任务-剩余账号');
                 if (!existingTask) {
                   addLog({
                     time: new Date().toLocaleTimeString(),

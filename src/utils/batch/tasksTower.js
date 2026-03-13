@@ -1150,10 +1150,27 @@ export function createTasksTower(deps) {
             let needStart = true;
             let loop = true;
             let failCount = 0;
+            let hasExistingChallenge = false;
 
             while (loop && !shouldStop.value) {
                 if (needStart) {
-                    await tokenStore.sendMessageWithPromise(tokenId, "towers_start", { towerType: type }, 5000);
+                    try {
+                        await tokenStore.sendMessageWithPromise(tokenId, "towers_start", { towerType: type }, 5000);
+                        hasExistingChallenge = false;
+                    } catch (startError) {
+                        // 检查是否是存在未完成的挑战错误（200330）
+                        if (startError.message && startError.message.includes("200330")) {
+                            addLog({
+                                time: new Date().toLocaleTimeString(),
+                                message: `${token.name} BOSS ${type} 检测到存在未完成的挑战，继续完成`,
+                                type: "info",
+                            });
+                            hasExistingChallenge = true;
+                        } else {
+                            // 其他错误，抛出异常
+                            throw startError;
+                        }
+                    }
                     // 稍微等待一下
                     await new Promise(r => setTimeout(r, 500));
                 }
@@ -1173,6 +1190,7 @@ export function createTasksTower(deps) {
 
                      needStart = false;
                      failCount = 0;
+                     hasExistingChallenge = false;
 
                      // 刷新数据
                      res = await tokenStore.sendMessageWithPromise(tokenId, "towers_getinfo", {}, 5000);
