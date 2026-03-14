@@ -35,7 +35,7 @@ export const useScheduledTaskStore = defineStore('scheduledTask', () => {
   
   // 计算属性
   const enabledTasks = computed(() => {
-    return scheduledTasks.value.filter(task => task.enabled)
+    return (scheduledTasks.value || []).filter(task => task.enabled)
   })
   
   const upcomingTasks = computed(() => {
@@ -136,21 +136,55 @@ export const useScheduledTaskStore = defineStore('scheduledTask', () => {
       
       // 使用全局方法执行任务（BatchDailyTasks.vue 中注册）
       if (window['executeScheduledTask']) {
-        await window['executeScheduledTask'](task)
+        const result = await window['executeScheduledTask'](task)
+        // 无论任务是否真正执行，都更新下次执行时间
+        // 这样可以避免任务被重复触发
+        updateCountdowns()
+        if (result !== false) {
+          console.log(`[ScheduledTask] 任务 ${task.name} 执行完成`)
+        } else {
+          console.log(`[ScheduledTask] 任务 ${task.name} 已加入积攒队列，等待执行`)
+        }
       } else {
-        console.warn('[ScheduledTask] executeScheduledTask 方法未注册')
+        console.warn('[ScheduledTask] executeScheduledTask 方法未注册，将任务保存到localStorage等待执行')
+        // 如果executeScheduledTask未注册，将任务保存到localStorage
+        const pendingTasks = JSON.parse(localStorage.getItem('pending_scheduled_tasks') || '[]')
+        pendingTasks.push({
+          id: Date.now() + Math.random(),
+          name: task.name,
+          runType: 'scheduled',
+          selectedTokens: task.selectedTokens,
+          selectedTasks: task.selectedTasks,
+          timestamp: Date.now()
+        })
+        localStorage.setItem('pending_scheduled_tasks', JSON.stringify(pendingTasks))
+        console.log('[ScheduledTask] 任务已保存到localStorage，等待BatchDailyTasks组件加载后执行')
+        // 任务被保存到localStorage，不更新下次执行时间
       }
-      
-      // 执行完成后更新下次执行时间
-      updateCountdowns()
     } catch (error) {
       console.error(`[ScheduledTask] 任务执行失败: ${task.name}`, error)
+      // 即使执行失败，也将任务保存到localStorage
+      try {
+        const pendingTasks = JSON.parse(localStorage.getItem('pending_scheduled_tasks') || '[]')
+        pendingTasks.push({
+          id: Date.now() + Math.random(),
+          name: task.name,
+          runType: 'scheduled',
+          selectedTokens: task.selectedTokens,
+          selectedTasks: task.selectedTasks,
+          timestamp: Date.now()
+        })
+        localStorage.setItem('pending_scheduled_tasks', JSON.stringify(pendingTasks))
+        console.log('[ScheduledTask] 任务执行失败，已保存到localStorage等待重试')
+      } catch (e) {
+        console.error('[ScheduledTask] 保存任务到localStorage失败:', e)
+      }
     } finally {
       // 清除执行标记
       executingTasks.value.delete(task.id)
     }
   }
-  
+
   const calculateNextExecutionTime = (task: ScheduledTask, now: Date): number => {
     if (task.runType === 'daily' && task.runTime) {
       const [hours, minutes] = task.runTime.split(':')
@@ -200,6 +234,7 @@ export const useScheduledTaskStore = defineStore('scheduledTask', () => {
   }
   
   const removeTask = (taskId: number) => {
+    if (!scheduledTasks.value) return
     const index = scheduledTasks.value.findIndex(t => t.id === taskId)
     if (index > -1) {
       const taskName = scheduledTasks.value[index].name
@@ -209,18 +244,28 @@ export const useScheduledTaskStore = defineStore('scheduledTask', () => {
   }
   
   const updateTask = (taskId: number, updates: Partial<ScheduledTask>) => {
-    const task = scheduledTasks.value.find(t => t.id === taskId)
-    if (task) {
-      Object.assign(task, updates)
-      console.log('[ScheduledTask] 更新任务:', task.name)
+    if (!scheduledTasks.value) return
+    const index = scheduledTasks.value.findIndex(t => t.id === taskId)
+    if (index > -1) {
+      const updatedTask = {
+        ...scheduledTasks.value[index],
+        ...updates
+      }
+      scheduledTasks.value.splice(index, 1, updatedTask)
+      console.log('[ScheduledTask] 更新任务:', updatedTask.name)
     }
   }
   
   const toggleTask = (taskId: number) => {
-    const task = scheduledTasks.value.find(t => t.id === taskId)
-    if (task) {
-      task.enabled = !task.enabled
-      console.log('[ScheduledTask] 切换任务状态:', task.name, task.enabled)
+    if (!scheduledTasks.value) return
+    const index = scheduledTasks.value.findIndex(t => t.id === taskId)
+    if (index > -1) {
+      const updatedTask = {
+        ...scheduledTasks.value[index],
+        enabled: !scheduledTasks.value[index].enabled
+      }
+      scheduledTasks.value.splice(index, 1, updatedTask)
+      console.log('[ScheduledTask] 切换任务状态:', updatedTask.name, updatedTask.enabled)
     }
   }
   

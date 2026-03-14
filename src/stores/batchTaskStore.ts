@@ -119,18 +119,22 @@ export const useBatchTaskStore = defineStore("batchTask", () => {
     runType?: string;
     params?: any;
   }) {
+    // 确保taskQueue.value存在
+    if (!taskQueue.value) {
+      taskQueue.value = [];
+    }
+    
     // 检查任务是否已在队列中，避免重复加入
     // 同时检查任务名称、运行类型、账号列表和任务类型
     const isTaskExists = taskQueue.value.some(existingTask => {
       // 检查任务名称和类型
       if (existingTask.name === task.name && existingTask.runType === task.runType) {
-        // 检查选中的账号是否相同
+        // 检查选中的账号是否相同（使用排序后的数组比较）
         const existingTokens = existingTask.selectedTokens || existingTask.tokenIds || [];
         const newTokens = task.selectedTokens || task.tokenIds || [];
-        const sameTokens = existingTokens.length === newTokens.length && 
-               existingTokens.every(tokenId => newTokens.includes(tokenId));
+        const sameTokens = JSON.stringify(existingTokens.sort()) === JSON.stringify(newTokens.sort());
         
-        // 检查选中的任务类型是否相同
+        // 检查选中的任务类型是否相同（使用排序后的数组比较）
         const existingTasks = existingTask.selectedTasks || existingTask.taskNames || [];
         const newTasks = task.selectedTasks || task.taskNames || [];
         const sameTasks = JSON.stringify(existingTasks.sort()) === JSON.stringify(newTasks.sort());

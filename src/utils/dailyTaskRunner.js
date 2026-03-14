@@ -650,102 +650,42 @@ export class DailyTaskRunner {
       });
     }
 
-    // 领取免费礼包（普通卡）
+    // 领取免费礼包（普通卡）- 直接执行，不检查
     if (isTodayAvailable(statisticsTime["card:claimreward:1"])) {
       taskList.push({
         name: "领取免费礼包",
-        execute: async () => {
-          try {
-            const roleRes = await this.tokenStore.sendMessageWithPromise(
-              tokenId,
-              "role_getroleinfo",
-              {},
-              5000,
-            );
-            const currentStatisticsTime = roleRes?.role?.statisticsTime || {};
-            if (!isTodayAvailable(currentStatisticsTime["card:claimreward:1"])) {
-              this.log("免费礼包今天已领取，跳过", "info");
-              return;
-            }
-          } catch (e) {
-            this.log(`检查免费礼包状态失败: ${e.message}，尝试直接执行`, "warning");
-          }
-          await this.executeGameCommand(tokenId, "card_claimreward", { cardId: 1 }, "领取免费礼包");
-        },
+        execute: () =>
+          this.executeGameCommand(tokenId, "card_claimreward", { cardId: 1 }, "领取免费礼包"),
       });
     }
 
-    // 领取永久卡礼包 - 检查用户是否有永久卡
+    // 领取周卡礼包（cardId: 4001）- 直接执行，让服务器端判断是否可领取
     taskList.push({
-      name: "领取永久卡礼包",
-      execute: async () => {
-        try {
-          const roleRes = await this.tokenStore.sendMessageWithPromise(
-            tokenId,
-            "role_getroleinfo",
-            {},
-            5000,
-          );
-          const cards = roleRes?.role?.cards || {};
-          const currentStatisticsTime = roleRes?.role?.statisticsTime || {};
-
-          // 检查是否有永久卡（cardId: 4003）
-          if (!cards[4003]) {
-            this.log("未购买永久卡，跳过领取", "info");
-            return;
-          }
-
-          // 检查今天是否已领取
-          if (!isTodayAvailable(currentStatisticsTime["card:claimreward:4003"])) {
-            this.log("永久卡礼包今天已领取，跳过", "info");
-            return;
-          }
-
-          await this.executeGameCommand(
-            tokenId,
-            "card_claimreward",
-            { cardId: 4003 },
-            "领取永久卡礼包",
-          );
-        } catch (e) {
-          this.log(`检查永久卡状态失败: ${e.message}，尝试直接执行`, "warning");
-          await this.executeGameCommand(
-            tokenId,
-            "card_claimreward",
-            { cardId: 4003 },
-            "领取永久卡礼包",
-          );
-        }
-      },
+      name: "领取周卡礼包",
+      execute: () =>
+        this.executeGameCommand(tokenId, "card_claimreward", { cardId: 4001 }, "领取周卡礼包"),
     });
 
-    // 领取邮件奖励
+    // 领取月卡礼包（cardId: 4002）- 直接执行，让服务器端判断是否可领取
+    taskList.push({
+      name: "领取月卡礼包",
+      execute: () =>
+        this.executeGameCommand(tokenId, "card_claimreward", { cardId: 4002 }, "领取月卡礼包"),
+    });
+
+    // 领取永久卡礼包（cardId: 4003）- 直接执行，让服务器端判断是否可领取
+    taskList.push({
+      name: "领取永久卡礼包",
+      execute: () =>
+        this.executeGameCommand(tokenId, "card_claimreward", { cardId: 4003 }, "领取永久卡礼包"),
+    });
+
+    // 领取邮件奖励 - 直接执行，不检查是否有附件
     if (settings.claimEmail) {
       taskList.push({
         name: "领取邮件奖励",
-        execute: async () => {
-          try {
-            // 先获取邮件列表检查是否有未领取附件的邮件
-            const mailRes = await this.tokenStore.sendMessageWithPromise(
-              tokenId,
-              "mail_getlist",
-              { category: [0, 4, 5], lastId: 0, size: 60 },
-              10000,
-            );
-            const mails = mailRes?.mails || [];
-            const hasUnclaimedAttachment = mails.some(
-              (mail) => mail.hasAttachment && !mail.isClaimed
-            );
-
-            if (!hasUnclaimedAttachment) {
-              this.log("没有未领取附件的邮件，跳过", "info");
-              return;
-            }
-          } catch (e) {
-            this.log(`检查邮件状态失败: ${e.message}，尝试直接执行`, "warning");
-          }
-          await this.executeGameCommand(tokenId, "mail_claimallattachment", { category: 0 }, "领取邮件奖励");
-        },
+        execute: () =>
+          this.executeGameCommand(tokenId, "mail_claimallattachment", { category: 0 }, "领取邮件奖励"),
       });
     }
 

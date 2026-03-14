@@ -643,6 +643,7 @@ import singleBinTokenForm from "./singlebin.vue";
 import WxQrcodeForm from "./wxqrcode.vue";
 
 import { useTokenStore, selectedTokenId } from "@/stores/tokenStore";
+import { useScheduledTaskStore } from "@/stores/scheduledTaskStore";
 import {
   Add,
   Copy,
@@ -1450,10 +1451,18 @@ const exportConfig = async () => {
 
     let scheduledTasks = [];
     try {
-      const saved = localStorage.getItem("scheduledTasks");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        scheduledTasks = Array.isArray(parsed) ? parsed : [];
+      // 首先尝试从v2版本读取（新格式）
+      const savedV2 = localStorage.getItem("scheduledTasks_v2");
+      if (savedV2) {
+        const parsedV2 = JSON.parse(savedV2);
+        scheduledTasks = Array.isArray(parsedV2) ? parsedV2 : [];
+      } else {
+        // 兼容旧版本格式
+        const savedV1 = localStorage.getItem("scheduledTasks");
+        if (savedV1) {
+          const parsedV1 = JSON.parse(savedV1);
+          scheduledTasks = Array.isArray(parsedV1) ? parsedV1 : [];
+        }
       }
     } catch (e) {
       console.warn('获取定时任务失败', e);
@@ -1801,6 +1810,36 @@ const importConfig = async ({ file }) => {
           try {
             localStorage.setItem("scheduledTasks_v2", JSON.stringify(importData.scheduledTasks));
             message.info(`定时任务导入完成: ${importData.scheduledTasks.length} 个`);
+            
+            // 尝试更新Pinia store中的定时任务状态
+            try {
+              const scheduledTaskStore = useScheduledTaskStore();
+              if (scheduledTaskStore) {
+                // 清空现有的任务
+                while (scheduledTaskStore.scheduledTasks.length > 0) {
+                  scheduledTaskStore.removeTask(scheduledTaskStore.scheduledTasks[0].id);
+                }
+                // 添加新的任务
+                importData.scheduledTasks.forEach(task => {
+                  scheduledTaskStore.addTask({
+                    name: task.name,
+                    taskName: task.taskName,
+                    runType: task.runType,
+                    runTime: task.runTime,
+                    cronExpression: task.cronExpression,
+                    selectedTokens: task.selectedTokens,
+                    selectedTasks: task.selectedTasks,
+                    enableBatchExecution: task.enableBatchExecution,
+                    batchSize: task.batchSize,
+                    batchDelay: task.batchDelay
+                  });
+                });
+                message.info('定时任务已同步到状态管理');
+              }
+            } catch (storeError) {
+              console.error('更新定时任务状态失败:', storeError);
+              // 即使更新状态失败，也不影响导入结果
+            }
           } catch (e) {
             console.error('导入定时任务失败:', e);
           }

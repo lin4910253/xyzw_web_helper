@@ -463,3 +463,157 @@ pnpm install
 2. 检查批量任务页面能否正常执行
 3. 查看修改日志 `.trae/修改日志.md`
 4. 按日志恢复所有缺失的修改
+
+---
+
+## 任务系统修改规则（重要！）
+
+当需要修改任务系统相关代码时（包括定时任务、积攒队列、分批执行等），**必须先执行以下分析流程，只分析不修改**：
+
+### 分析命令关键词
+
+当用户要求修改任务系统时，先发送：**"任务系统分析"** 或 **"分析任务冲突"**
+
+### 必须分析的三种执行场景
+
+#### 1. 定时任务执行流程
+```
+startScheduler (定时任务调度器)
+  ├─→ 检查 isPauseTime.value.paused
+  │     ├─→ true: 加入积攒队列 + continue
+  │     └─→ false: 继续
+  ├─→ 检查 batchTaskStore.isRunning.value
+  │     ├─→ true: 加入积攒队列 + continue
+  │     └─→ false: 继续
+  ├─→ 再次检查 batchTaskStore.isRunning.value（防止竞态条件）
+  │     ├─→ true: 加入积攒队列 + continue
+  │     └─→ false: 继续
+  ├─→ 设置 task_executing_${task.id} 标记
+  ├─→ batchTaskStore.startTask() // isRunning = true
+  ├─→ 执行 executeScheduledTask(task, true)
+  └─→ finally:
+        ├─→ 清除 task_executing_${task.id} 标记
+        ├─→ batchTaskStore.stopTask() // isRunning = false
+        ├─→ 更新 lastTaskExecution
+        └─→ checkAndExecuteQueuedTasks()
+```
+
+#### 2. 积攒队列执行流程
+```
+checkAndExecuteQueuedTasks()
+  ├─→ 检查 isExecutingQueuedTasks.value
+  │     ├─→ true: return
+  │     └─→ false: 设置 isExecutingQueuedTasks.value = true
+  ├─→ batchTaskStore.startTask() // isRunning = true
+  ├─→ 遍历积攒队列中的任务
+  │     └─→ 对于每个任务，调用 startBatch(true) 或 executeInBatches(..., true)
+  └─→ finally:
+        ├─→ isExecutingQueuedTasks.value = false
+        └─→ batchTaskStore.stopTask() // isRunning = false
+```
+
+#### 3. 分批任务执行流程 (executeInBatches)
+```
+executeInBatches(taskFunction, taskName, taskFunctionName, isFromQueue = false)
+  ├─→ 检查 !isFromQueue && batchTaskStore.isRunning.value
+  │     ├─→ true: 加入积攒队列 + return
+  │     └─→ false: 继续
+  ├─→ batchTaskStore.startTask() // isRunning = true
+  ├─→ for 循环遍历批次:
+  │     ├─→ 保存 wasRunningBeforeTask = batchTaskStore.isRunning.value
+  │     ├─→ 执行 taskFunction()
+  │     ├─→ finally: 如果 wasRunningBeforeTask && !isRunning.value，则恢复 isRunning
+  │     ├─→ 如果还有下一批:
+  │     │     └─→ while 循环等待:
+  │     │           ├─→ 每秒检查: 如果 !isRunning.value，则 startTask()
+  │     │           └─→ 检查暂停时间
+  │     └─→ resetShouldStop()
+  └─→ 循环结束后:
+        ├─→ batchTaskStore.stopTask() // isRunning = false
+        └─→ await checkAndExecuteQueuedTasks()
+```
+
+### 关键检查点
+
+修改前必须检查以下关键点：
+
+1. **isRunning 状态访问**：
+   - ✅ 正确：`batchTaskStore.isRunning.value`
+   - ❌ 错误：`batchTaskStore.isRunning`（返回的是 ref 对象，不是布尔值）
+
+2. **任务冲突检测位置**：
+   - `executeInBatches` 函数开头
+   - `startBatch` 函数开头
+   - `startScheduler` 函数中（定时任务调度器）
+   - `manualExecuteTask` 函数中
+
+3. **continue/return 语句**：
+   - 加入积攒队列后必须有 `continue` 或 `return`，防止代码继续执行
+
+4. **状态恢复逻辑**：
+   - 任务完成后必须重置 isRunning
+   - 分批等待期间必须保持 isRunning 为 true
+   - 异常情况下也要正确恢复状态
+
+5. **竞态条件防护**：
+   - 执行任务前再次检查 isRunning
+   - 使用 task_executing_${task.id} 标记防止重复执行
+
+### 分析输出格式
+
+执行分析后，必须输出以下信息：
+
+```markdown
+## 任务系统冲突分析
+
+### 修改影响范围
+- [ ] 定时任务执行流程
+- [ ] 积攒队列执行流程
+- [ ] 分批任务执行流程
+
+### 关键检查点验证
+- [ ] isRunning 状态访问使用 .value
+- [ ] 任务冲突检测逻辑正确
+- [ ] continue/return 语句存在
+- [ ] 状态恢复逻辑正确
+- [ ] 竞态条件防护措施存在
+
+### 潜在冲突分析
+1. **场景1**：定时任务到时间时有分批任务正在等待
+   - 预期行为：定时任务加入积攒队列
+   - 风险点：等待期间 isRunning 状态可能被错误设置
+
+2. **场景2**：积攒队列执行期间新定时任务到时间
+   - 预期行为：新定时任务加入积攒队列
+   - 风险点：isExecutingQueuedTasks 和 isRunning 双重检查
+
+3. **场景3**：分批任务执行期间定时任务到时间
+   - 预期行为：定时任务加入积攒队列
+   - 风险点：批次间的等待期间状态管理
+
+### 修改建议
+（在这里提出具体的修改方案，等待用户确认后再执行）
+```
+
+### 示例对话
+
+**用户**：修复积攒队列不执行的问题
+
+**助手**：在修改前，我需要先进行任务系统冲突分析。
+
+**分析过程**：
+1. 搜索所有 isRunning 使用位置
+2. 画出三种执行流程的调用关系
+3. 检查关键检查点
+4. 分析潜在冲突
+
+**分析结果**：输出上述格式的分析报告
+
+**等待用户确认**：
+"根据分析，问题可能出现在 XXX，建议修改 YYY。请确认这个方案是否正确？"
+
+**用户确认后**：执行修改
+
+---
+
+**重要提醒**：违反此规则可能导致任务系统出现严重冲突，务必严格执行！
